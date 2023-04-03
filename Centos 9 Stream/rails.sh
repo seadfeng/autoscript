@@ -1,6 +1,10 @@
 #!/bin/bash
 dnf -y install epel-release
 
+# dnf config-manager --set-enabled powertools  # centos 7,8
+dnf config-manager --set-enabled crb
+dnf install libyaml-devel
+
 # dnf -y install mysql mysql-devel
 dnf -y install  postgresql-contrib postgresql libpq postgresql-devel
 

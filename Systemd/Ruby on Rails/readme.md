@@ -1,6 +1,6 @@
  # Systemd 脚本工具
 
- 生成Systemd配置
+ 生成Systemd配置,bin下文件放到rails项目bin目录中
 
 - 默认值 user:group => deploy:deploy
 ```bash
