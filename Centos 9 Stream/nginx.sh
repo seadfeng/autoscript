@@ -40,10 +40,6 @@ dnf install gcc-c++ pcre-devel zlib-devel make unzip libuuid-devel -y
  
 
 cd /usr/local/src/
-git clone https://github.com/yaoweibin/ngx_http_substitutions_filter_module
-
- 
-cd /usr/local/src/
 NGINX_VERSION=1.23.1
 wget https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz
 tar xf nginx-${NGINX_VERSION}.tar.gz
