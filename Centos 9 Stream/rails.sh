@@ -10,6 +10,8 @@ dnf -y install libcurl-devel curl-devel
 dnf -y install perl
 dnf -y install ImageMagick ImageMagick-devel 
 dnf -y install libffi-devel readline-devel ruby sqlite-devel openssl-devel
+dnf -y install ruby ruby-devel
+dnf -y install gnupg2 curl tar
 
 useradd deploy
 
