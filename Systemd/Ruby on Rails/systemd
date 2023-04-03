@@ -1,0 +1,232 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+raise StandardError, "\nUage: bin/systemd puma sidekiq\nWith user or group: bin/systemd puma sidekiq user:deploy group:deploy" if !ARGV.include?('sidekiq') && !ARGV.include?('puma')
+
+require "pathname"
+
+# Path Info
+bin_path = Pathname.new(File.join(__dir__, '.'))
+reg = /(.*\/)([^\/]*)\/bin\//
+match = reg.match(bin_path.to_s)
+app_path_name =  match[2]  
+root_path =  match[1] + app_path_name
+
+# User & Group
+find_user = ARGV.find{|c| c.include?('user:') }
+find_group = ARGV.find{|c| c.include?('group:') }
+unless find_user.nil?
+  user = find_user.split(":")[1]
+else
+  user = 'deploy'
+end
+unless find_group.nil?
+  group = find_group.split(":")[1]
+else
+  group = 'deploy'
+end
+
+def systemd_path
+  if File.directory?('/etc/systemd/system')
+    '/etc/systemd/system'
+  elsif File.directory?('/lib/systemd/system') 
+    '/lib/systemd/system'
+  else
+    nil
+  end
+end
+
+def touch_sidekiq(body)
+  unless systemd_path.nil? 
+    touch_systemd "#{systemd_path}/sidekiq.#{app_path_name}.service", body 
+  end
+end
+
+def touch_puma(body)
+  unless systemd_path.nil? 
+    touch_systemd "#{systemd_path}/sidekiq.#{app_path_name}.service", body 
+  end
+end
+
+def touch_systemd(path, body)
+  f = File.open(path, mode: 'w')
+  f.write( body)
+  f.close()
+end
+
+
+# Systemd Config
+ARGV.each do |arg|
+  case arg
+  when 'sidekiq'
+    @sidekiq_body = <<~EOF
+#
+# systemd unit file for CentOS 7,8,9, Ubuntu 15.04
+#
+# Customize this file based on your bundler location, app directory, etc.
+# Put this in /usr/lib/systemd/system (CentOS) or /lib/systemd/system (Ubuntu).
+# Run:
+#   - systemctl enable sidekiq
+#   - systemctl {start,stop,restart} sidekiq
+#
+# This file corresponds to a single Sidekiq process.  Add multiple copies
+# to run multiple processes (sidekiq-1, sidekiq-2, etc).
+#
+# See Inspeqtor's Systemd wiki page for more detail about Systemd:
+# https://github.com/mperham/inspeqtor/wiki/Systemd
+#
+[Unit]
+Description=Sidekiq worker
+PartOf=sidekiq.service
+After=sidekiq.service 
+
+[Service]
+Type=simple
+WorkingDirectory=#{root_path}
+
+# If you use rbenv:
+# ExecStart=/bin/bash -lc '/home/#{user}/.rbenv/shims/bundle exec sidekiq -e production'
+# If you use the system's ruby:
+#ExecStart=/home/#{user}/.rvm/rubies/ruby-2.5.1/bin/bundle exec sidekiq -e production -C config/sidekiq.yml -i "%I"
+ExecStart=/bin/bash -lc 'sidekiq -e production -C config/sidekiq.yml'
+
+User=#{user}
+Group=#{group}
+UMask=0002
+
+KillMode=mixed
+TimeoutStopSec=30
+
+# Greatly reduce Ruby memory fragmentation and heap usage
+# https://www.mikeperham.com/2018/04/25/taming-rails-memory-bloat/
+Environment=MALLOC_ARENA_MAX=2
+
+# if we crash, restart 
+RestartSec=1
+Restart=on-failure
+
+# output goes to /var/log/syslog
+StandardOutput=syslog
+StandardError=syslog
+
+# This will default to "bundler" if we don't specify it
+SyslogIdentifier=sidekiq
+
+[Install]
+# This unit should start when puma.service is starting
+WantedBy=sidekiq.service
+
+# don't create a new systemd.slice per instance
+#Slice=system.slice
+EOF
+  touch_sidekiq(@sidekiq_body)
+  when 'puma'
+    @puma_body = <<~EOF
+[Unit]
+Description=Puma Adflurry HTTP Servers 
+PartOf=puma.service
+After=puma.service 
+
+# Uncomment for socket activation (see below)
+# Requires=puma.socket
+
+[Service]
+# Foreground process (do not use --daemon in ExecStart or config.rb)
+Type=simple
+
+# Preferably configure a non-privileged user
+# User=
+User=#{user}
+Group=#{group}
+
+# The path to the your application code root directory.
+# Also replace the "<YOUR_APP_PATH>" place holders below with this path.
+# Example /home/username/myapp
+WorkingDirectory=#{root_path}
+
+# Helpful for debugging socket activation, etc.
+# Environment=PUMA_DEBUG=1
+
+# SystemD will not run puma even if it is in your path. You must specify
+# an absolute URL to puma. For example /usr/local/bin/puma
+# Alternatively, create a binstub with `bundle binstubs puma --path ./sbin` in the WorkingDirectory 
+ExecStart=/bin/bash -lc 'puma -C #{root_path}/config/puma.rb'
+
+Restart=always
+
+[Install]
+# This unit should start when puma.service is starting
+WantedBy=puma.service
+EOF
+  touch_puma(@puma_body)
+  end
+end
+
+
+if !File.directory?('/etc/systemd/system/') && !File.directory?('/lib/systemd/system')  
+  puts "BEGIN Sidekiq =========================================="
+  puts @sidekiq_body
+  puts "END Sidekiq =========================================="
+  puts " "
+  puts "BEGIN Puma =========================================="
+  puts @puma_body
+  puts "END Puma =========================================="
+  raise StandardError, "Make sure your system is CentOS or Ubuntu"
+else
+  unless systemd_path.nil? 
+    puma_root = "#{systemd_path}/puma.service"
+    unless File.exist?(puma_root)
+      body = <<~EOF
+[Unit]
+Description=Puma HTTP Servers
+# start as many workers as you want here
+PartOf=rails.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/true
+RemainAfterExit=true
+
+[Install]
+# Components of this application should be started at boot time
+WantedBy=multi-user.target
+      EOF
+      touch_systemd puma_root, body 
+    end
+
+    sidekiq_root = "#{systemd_path}/sidekiq.service"
+    unless File.exist?(sidekiq_root)
+      body = <<~EOF
+[Unit]
+Description=Sidekiq workers
+# start as many workers as you want here
+PartOf=rails.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/true
+RemainAfterExit=true
+
+[Install]
+# Components of this application should be started at boot time
+WantedBy=multi-user.target
+      EOF
+    end
+
+    rails_target = "#{systemd_path}/rails.target"
+    unless File.exist?(rails_target)
+      body = <<~EOF
+[Unit]
+Description=Rails With Puma & Sidekiq
+Requires=puma.service sidekiq.service
+After=puma.service sidekiq.service
+
+[Install]
+WantedBy=multi-user.target
+      EOF
+    end
+  end
+  
+end
+ 
+

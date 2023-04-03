@@ -1,0 +1,7 @@
+[Unit]
+Description=Rails With Puma & Sidekiq
+Requires=puma.service sidekiq.service
+After=puma.service sidekiq.service
+
+[Install]
+WantedBy=multi-user.target
