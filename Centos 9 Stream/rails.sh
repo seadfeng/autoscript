@@ -1,3 +1,4 @@
+#!/bin/bash
 dnf -y install epel-release
 
 # dnf -y install mysql mysql-devel
